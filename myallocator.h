@@ -110,13 +110,11 @@ public:
         n = n * sizeof(T);
         void* ret = 0;
 
-
         if (n > (size_t) MAX_BYTES) {
             ret = malloc_alloc::allocate(n);
         }
         else {
-        Obj* volatile* my_free_list
-            = free_list + freelist_index(n);
+        Obj* volatile* my_free_list = free_list + freelist_index(n);
 
         std::lock_guard<std::mutex> guard(mtx) ;
         Obj*  result = *my_free_list;
@@ -186,10 +184,10 @@ private:
 
 
 
-    //每一个chunk 块的头信息, _M_free_list_link指向下一个chunk块, 相当于链表的 next指针
+    //每一个chunk 块的头信息
     union Obj {
         union Obj* free_list_next;
-        char client_data[1];    /* The client sees this.        */
+        char client_data[1];
     };
 
     // 已分配的内存 chunk 块的使用情况
@@ -252,19 +250,23 @@ private:
         size_t total_bytes = size * nobjs;
         size_t bytes_left = end_free - start_free;//内存池剩余空间
 
+        //1. 如果内存池还满足 20 个 chunk, 就继续用内存池
         if (bytes_left >= total_bytes) {
             result = start_free;
             start_free += total_bytes;
             return(result);
-        } else if (bytes_left >= size) {
-            //内存池剩余空间不能完全满足需求量但足够供应一个（含）以上的区块
+        }
+        //2. 内存池剩余空间不能完全满足需求量但足够供应一个（含）以上的区块
+        else if (bytes_left >= size) {
             nobjs = (int)(bytes_left / size);
             total_bytes = size * nobjs;
             result = start_free;
             start_free += total_bytes;
             return(result);
-        } else {
-            //内存池剩余空间连一个区块的大小都无法提供
+        }
+        //3.内存池剩余空间连一个区块的大小都无法提供, 用 malloc 申请 40 个 chunk
+        else
+        {
             size_t bytes_to_get = 2 * total_bytes + round_up(heap_size >> 4);
             //试着让内存池的残余零头还有利用价值
             if (bytes_left > 0) {
