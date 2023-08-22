@@ -13,39 +13,39 @@
 //封装了 malloc 和 free 操作， 可以设置 OOM 释放内存的回调函数
 // 分配失败了， 会尝试释放内存， 然后再次分配
 template <int __inst>
-class __malloc_alloc_template {
+class malloc_alloc_template {
 
 private:
-  static void* _S_oom_malloc(size_t);
-  static void* _S_oom_realloc(void*, size_t);
-  static void (* __malloc_alloc_oom_handler)();
+  static void* oom_malloc(size_t);
+  static void* oom_realloc(void*, size_t);
+  static void (* malloc_alloc_oom_handler)();
 
 public:
 
-  static void* allocate(size_t __n)
+  static void* allocate(size_t n)
   {
-    void* __result = malloc(__n);
-    if (0 == __result) __result = _S_oom_malloc(__n);
-    return __result;
+    void* result = malloc(n);
+    if (0 == result) result = oom_malloc(n);
+    return result;
   }
 
-  static void deallocate(void* __p, size_t /* __n */)
+  static void deallocate(void* p, size_t /* __n */)
   {
-    free(__p);
+    free(p);
   }
 
-  static void* reallocate(void* __p, size_t /* old_sz */, size_t __new_sz)
+  static void* reallocate(void* p, size_t /* old_sz */, size_t new_sz)
   {
-    void* __result = realloc(__p, __new_sz);
-    if (0 == __result) __result = _S_oom_realloc(__p, __new_sz);
-    return __result;
+    void* result = realloc(p, new_sz);
+    if (0 == result) result = oom_realloc(p, new_sz);
+    return result;
   }
 
-  static void (* __set_malloc_handler(void (*__f)()))()
+  static void (* set_malloc_handler(void (*f)()))()
   {
-    void (* __old)() = __malloc_alloc_oom_handler;
-    __malloc_alloc_oom_handler = __f;
-    return(__old);
+    void (* old)() = malloc_alloc_oom_handler;
+      malloc_alloc_oom_handler = f;
+    return(old);
   }
 
 };
@@ -53,39 +53,39 @@ public:
 
 template <int __inst>
 void*
-__malloc_alloc_template<__inst>::_S_oom_malloc(size_t __n)
+malloc_alloc_template<__inst>::oom_malloc(size_t n)
 {
-    void (* __my_malloc_handler)();
-    void* __result;
+    void (* my_malloc_handler)();
+    void* result;
 
     for (;;) {
-        __my_malloc_handler = __malloc_alloc_oom_handler;
-        if (0 == __my_malloc_handler) { throw std::bad_alloc(); }
-        (*__my_malloc_handler)();
-        __result = malloc(__n);
-        if (__result) return(__result);
+        my_malloc_handler = malloc_alloc_oom_handler;
+        if (0 == my_malloc_handler) { throw std::bad_alloc(); }
+        (*my_malloc_handler)();
+        result = malloc(n);
+        if (result) return(result);
     }
 }
 
-template <int __inst>
-void* __malloc_alloc_template<__inst>::_S_oom_realloc(void* __p, size_t __n)
+template <int inst>
+void* malloc_alloc_template<inst>::oom_realloc(void* p, size_t n)
 {
-    void (* __my_malloc_handler)();
-    void* __result;
+    void (* my_malloc_handler)();
+    void* result;
 
     for (;;) {
-        __my_malloc_handler = __malloc_alloc_oom_handler;
-        if (0 == __my_malloc_handler) { throw std::bad_alloc(); }
-        (*__my_malloc_handler)();
-        __result = realloc(__p, __n);
-        if (__result) return(__result);
+        my_malloc_handler = malloc_alloc_oom_handler;
+        if (0 == my_malloc_handler) { throw std::bad_alloc(); }
+        (*my_malloc_handler)();
+        result = realloc(p, n);
+        if (result) return(result);
     }
 }
 
 
-typedef __malloc_alloc_template<0> malloc_alloc;
+typedef malloc_alloc_template<0> malloc_alloc;
 template <int __inst>
-void (* __malloc_alloc_template<__inst>::__malloc_alloc_oom_handler)() = nullptr;
+void (* malloc_alloc_template<__inst>::malloc_alloc_oom_handler)() = nullptr;
 
 template <typename T>
 class MyAllocator
@@ -94,7 +94,7 @@ public:
     //容器要求的类型
     using value_type = T;
 
-    constexpr MyAllocator() noexcept 
+    constexpr MyAllocator() noexcept
     {
         //do nothing
     }
@@ -105,205 +105,205 @@ public:
         //do nothing
     }
 
-   static T* allocate(size_t __n)
-    {   
-        __n = __n * sizeof(T); 
-        void* __ret = 0;
+   static T* allocate(size_t n)
+    {
+        n = n * sizeof(T);
+        void* ret = 0;
 
 
-        if (__n > (size_t) _MAX_BYTES) {
-        __ret = malloc_alloc::allocate(__n);
+        if (n > (size_t) MAX_BYTES) {
+            ret = malloc_alloc::allocate(n);
         }
         else {
-        _Obj* volatile* __my_free_list
-            = _S_free_list + _S_freelist_index(__n);
+        Obj* volatile* my_free_list
+            = free_list + freelist_index(n);
 
         std::lock_guard<std::mutex> guard(mtx) ;
-        _Obj*  __result = *__my_free_list;
-            if (__result == 0)
-                __ret = _S_refill(_S_round_up(__n));
+        Obj*  result = *my_free_list;
+            if (result == 0)
+                ret = refill(round_up(n));
             else {
-                *__my_free_list = __result -> _M_free_list_link;
-                __ret = __result;
-            }   
+                *my_free_list = result -> free_list_next;
+                ret = result;
+            }
         }
-        return (T*)__ret;
-    } 
+        return (T*)ret;
+    }
 
-    static void deallocate(void* __p, size_t __n)
+    static void deallocate(void* p, size_t n)
     {
-    /* __p may not be 0 */
-        if (__n > (size_t) _MAX_BYTES)
+    /* p may not be 0 */
+        if (n > (size_t) MAX_BYTES)
         {
-            malloc_alloc::deallocate(__p, __n);
+            malloc_alloc::deallocate(p, n);
         }
-        else 
+        else
         {
-        _Obj* volatile*  __my_free_list
-            = _S_free_list + _S_freelist_index(__n);
-        _Obj* __q = (_Obj*)__p;
+        Obj* volatile*  my_free_list
+            = free_list + freelist_index(n);
+        Obj* q = (Obj*)p;
 
         std::lock_guard<std::mutex> guard(mtx) ;
 
-        __q -> _M_free_list_link = *__my_free_list;
-        *__my_free_list = __q;
+            q -> free_list_next = *my_free_list;
+        *my_free_list = q;
         // lock is released here
         }
         }
 
-    static void* reallocate(void* __p, size_t __old_sz, size_t __new_sz)
+    static void* reallocate(void* p, size_t old_sz, size_t new_sz)
     {
 
-        void* __result;
-        size_t __copy_sz;
+        void* result;
+        size_t copy_sz;
 
-        if (__old_sz > (size_t) _MAX_BYTES && __new_sz > (size_t) _MAX_BYTES) {
-            return(realloc(__p, __new_sz));
+        if (old_sz > (size_t) MAX_BYTES && new_sz > (size_t) MAX_BYTES) {
+            return(realloc(p, new_sz));
         }
-        if (_S_round_up(__old_sz) == _S_round_up(__new_sz)) return(__p);
-        __result = allocate(__new_sz);
-        __copy_sz = __new_sz > __old_sz? __old_sz : __new_sz;
-        std::memcpy(__result, __p, __copy_sz);
-        deallocate(__p, __old_sz);
-        return(__result);
-    
+        if (round_up(old_sz) == round_up(new_sz)) return(p);
+        result = allocate(new_sz);
+        copy_sz = new_sz > old_sz ? old_sz : new_sz;
+        std::memcpy(result, p, copy_sz);
+        deallocate(p, old_sz);
+        return(result);
+
     }
 
     //object constructor
-    void construct(T* __p, const T& __val)
+    void construct(T* p, const T& val)
     {
-        new (__p) T(__val);
+        new (p) T(val);
     }
     //object destructor
-    void destroy(T* __p)
+    void destroy(T* p)
     {
-        __p->~T();
-    } 
+        p->~T();
+    }
 private:
-    enum {_ALIGN = 8};  // 自由链表从8字节开始, 以8字节为单位增长
-    enum {_MAX_BYTES = 128}; // 内存池最大128字节
-    enum {_NFREELISTS = 16}; //自由链表的个数
+    enum {ALIGN = 8};  // 自由链表从8字节开始, 以8字节为单位增长
+    enum {MAX_BYTES = 128}; // 内存池最大128字节
+    enum {NFREELISTS = 16}; //自由链表的个数
 
 
 
     //每一个chunk 块的头信息, _M_free_list_link指向下一个chunk块, 相当于链表的 next指针
-    union _Obj {
-        union _Obj* _M_free_list_link;
-        char _M_client_data[1];    /* The client sees this.        */
+    union Obj {
+        union Obj* free_list_next;
+        char client_data[1];    /* The client sees this.        */
     };
 
     // 已分配的内存 chunk 块的使用情况
-    static char* _S_start_free;
-    static char* _S_end_free;
-    static size_t _S_heap_size;
+    static char* start_free;
+    static char* end_free;
+    static size_t heap_size;
 
     //静态数组: 16个自由链表, 每个链表的头指针
     //volatile 防止编译器优化, 保证每次读取都是从内存中读取, 而不是从寄存器中读取
-    static _Obj* volatile  _S_free_list[_NFREELISTS]; 
+    static Obj* volatile  free_list[NFREELISTS];
 
     //内存池基于freelist的实现, 需要考虑线程安全
     static std::mutex mtx;
 
 
     //将__bytes上调至最临近的8的倍数
-    static size_t _S_round_up(size_t __bytes) 
-    { 
-        return (((__bytes) + (size_t) _ALIGN-1) & ~((size_t) _ALIGN - 1)); 
+    static size_t round_up(size_t bytes)
+    {
+        return (((bytes) + (size_t) ALIGN - 1) & ~((size_t) ALIGN - 1));
     }
 
     //返回__bytes在自由链表中的索引
-    static size_t _S_freelist_index(size_t __bytes) 
+    static size_t freelist_index(size_t bytes)
     {
-        return (((__bytes) + (size_t)_ALIGN-1)/(size_t)_ALIGN - 1);
+        return (((bytes) + (size_t)ALIGN - 1) / (size_t)ALIGN - 1);
     }
     //主要是把分配好的 chunk 块进行连接的
-    static void* _S_refill(size_t __n)
+    static void* refill(size_t n)
     {
-        int __nobjs = 20;
-        char* __chunk = _S_chunk_alloc(__n, __nobjs);
-        _Obj* volatile* __my_free_list;
-        _Obj* __result;
-        _Obj* __current_obj;
-        _Obj* __next_obj;
-        int __i;
+        int nobjs = 20;
+        char* chunk = chunk_alloc(n, nobjs);
+        Obj* volatile* my_free_list;
+        Obj* result;
+        Obj* current_obj;
+        Obj* next_obj;
+        int i;
 
-        if (1 == __nobjs) return(__chunk);
-        __my_free_list = _S_free_list + _S_freelist_index(__n);
+        if (1 == nobjs) return(chunk);
+        my_free_list = free_list + freelist_index(n);
 
         /* Build free list in chunk */
-        __result = (_Obj*)__chunk;
-        *__my_free_list = __next_obj = (_Obj*)(__chunk + __n);
-        for (__i = 1; ; __i++) {
-            __current_obj = __next_obj;
-            __next_obj = (_Obj*)((char*)__next_obj + __n);
-            if (__nobjs - 1 == __i) {
-                __current_obj -> _M_free_list_link = 0;
+        result = (Obj*)chunk;
+        *my_free_list = next_obj = (Obj*)(chunk + n);
+        for (i = 1; ; i++) {
+            current_obj = next_obj;
+            next_obj = (Obj*)((char*)next_obj + n);
+            if (nobjs - 1 == i) {
+                current_obj -> free_list_next = 0;
                 break;
             } else {
-                __current_obj -> _M_free_list_link = __next_obj;
+                current_obj -> free_list_next = next_obj;
             }
         }
-        return(__result);
+        return(result);
     }
     //主要负责分配自由链表, chunk 块
-    static char* _S_chunk_alloc(size_t __size, int& __nobjs)
+    static char* chunk_alloc(size_t size, int& nobjs)
     {
-        char* __result;
-        size_t __total_bytes = __size * __nobjs;
-        size_t __bytes_left = _S_end_free - _S_start_free;
+        char* result;
+        size_t total_bytes = size * nobjs;
+        size_t bytes_left = end_free - start_free;
 
-        if (__bytes_left >= __total_bytes) {
-            __result = _S_start_free;
-            _S_start_free += __total_bytes;
-            return(__result);
-        } else if (__bytes_left >= __size) {
-            __nobjs = (int)(__bytes_left/__size);
-            __total_bytes = __size * __nobjs;
-            __result = _S_start_free;
-            _S_start_free += __total_bytes;
-            return(__result);
+        if (bytes_left >= total_bytes) {
+            result = start_free;
+            start_free += total_bytes;
+            return(result);
+        } else if (bytes_left >= size) {
+            nobjs = (int)(bytes_left / size);
+            total_bytes = size * nobjs;
+            result = start_free;
+            start_free += total_bytes;
+            return(result);
         } else {
-            size_t __bytes_to_get = 
-        2 * __total_bytes + _S_round_up(_S_heap_size >> 4);
+            size_t __bytes_to_get =
+                    2 * total_bytes + round_up(heap_size >> 4);
             // Try to make use of the left-over piece.
-            if (__bytes_left > 0) {
-                _Obj* volatile* __my_free_list =
-                            _S_free_list + _S_freelist_index(__bytes_left);
+            if (bytes_left > 0) {
+                Obj* volatile* __my_free_list =
+                        free_list + freelist_index(bytes_left);
 
-                ((_Obj*)_S_start_free) -> _M_free_list_link = *__my_free_list;
-                *__my_free_list = (_Obj*)_S_start_free;
+                ((Obj*)start_free) -> free_list_next = *__my_free_list;
+                *__my_free_list = (Obj*)start_free;
             }
-            _S_start_free = (char*)malloc(__bytes_to_get);
-            if (nullptr == _S_start_free) {
+            start_free = (char*)malloc(__bytes_to_get);
+            if (nullptr == start_free) {
                 size_t __i;
-                _Obj* volatile* __my_free_list;
-            _Obj* __p;
+                Obj* volatile* __my_free_list;
+            Obj* __p;
                 // Try to make do with what we have.  That can't
                 // hurt.  We do not try smaller requests, since that tends
                 // to result in disaster on multi-process machines.
-                for (__i = __size;
-                    __i <= (size_t) _MAX_BYTES;
-                    __i += (size_t) _ALIGN) {
-                    __my_free_list = _S_free_list + _S_freelist_index(__i);
+                for (__i = size;
+                    __i <= (size_t) MAX_BYTES;
+                    __i += (size_t) ALIGN) {
+                    __my_free_list = free_list + freelist_index(__i);
                     __p = *__my_free_list;
                     if (0 != __p) {
-                        *__my_free_list = __p -> _M_free_list_link;
-                        _S_start_free = (char*)__p;
-                        _S_end_free = _S_start_free + __i;
-                        return(_S_chunk_alloc(__size, __nobjs));
+                        *__my_free_list = __p -> free_list_next;
+                        start_free = (char*)__p;
+                        end_free = start_free + __i;
+                        return(chunk_alloc(size, nobjs));
                         // Any leftover piece will eventually make it to the
                         // right free list.
                     }
                 }
-            _S_end_free = 0;	// In case of exception.
-                _S_start_free = (char*)malloc_alloc::allocate(__bytes_to_get);
+            end_free = 0;	// In case of exception.
+                start_free = (char*)malloc_alloc::allocate(__bytes_to_get);
                 // This should either throw an
                 // exception or remedy the situation.  Thus we assume it
                 // succeeded.
             }
-            _S_heap_size += __bytes_to_get;
-            _S_end_free = _S_start_free + __bytes_to_get;
-            return(_S_chunk_alloc(__size, __nobjs));
+            heap_size += __bytes_to_get;
+            end_free = start_free + __bytes_to_get;
+            return(chunk_alloc(size, nobjs));
         }
     }
 
@@ -315,17 +315,17 @@ private:
 
 //类静态成员变量初始化
 template <typename T>
-char* MyAllocator<T>::_S_start_free = nullptr;
+char* MyAllocator<T>::start_free = nullptr;
 
 template <typename T>
-char* MyAllocator<T>::_S_end_free = nullptr;
+char* MyAllocator<T>::end_free = nullptr;
 
 template <typename T>
-size_t MyAllocator<T>::_S_heap_size = 0;
+size_t MyAllocator<T>::heap_size = 0;
 
 
 template <typename T>
-typename MyAllocator<T>::_Obj* volatile MyAllocator<T>::_S_free_list[_NFREELISTS] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+typename MyAllocator<T>::Obj* volatile MyAllocator<T>::free_list[NFREELISTS] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
 
 
 template <typename T>
