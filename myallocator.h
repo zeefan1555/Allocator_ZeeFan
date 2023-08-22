@@ -250,59 +250,62 @@ private:
     {
         char* result;
         size_t total_bytes = size * nobjs;
-        size_t bytes_left = end_free - start_free;
+        size_t bytes_left = end_free - start_free;//内存池剩余空间
 
         if (bytes_left >= total_bytes) {
             result = start_free;
             start_free += total_bytes;
             return(result);
         } else if (bytes_left >= size) {
+            //内存池剩余空间不能完全满足需求量但足够供应一个（含）以上的区块
             nobjs = (int)(bytes_left / size);
             total_bytes = size * nobjs;
             result = start_free;
             start_free += total_bytes;
             return(result);
         } else {
-            size_t __bytes_to_get =
-                    2 * total_bytes + round_up(heap_size >> 4);
-            // Try to make use of the left-over piece.
+            //内存池剩余空间连一个区块的大小都无法提供
+            size_t bytes_to_get = 2 * total_bytes + round_up(heap_size >> 4);
+            //试着让内存池的残余零头还有利用价值
             if (bytes_left > 0) {
-                Obj* volatile* __my_free_list =
+                //内存池还有一些零头，先配给适当的free List
+                //首先寻找适当的free List
+                Obj* volatile* my_free_list =
                         free_list + freelist_index(bytes_left);
-
-                ((Obj*)start_free) -> free_list_next = *__my_free_list;
-                *__my_free_list = (Obj*)start_free;
+                //调整free List，将内存池中的残余空间编入
+                ((Obj*)start_free) -> free_list_next = *my_free_list;
+                *my_free_list = (Obj*)start_free;
             }
-            start_free = (char*)malloc(__bytes_to_get);
+            start_free = (char*)malloc(bytes_to_get);
             if (nullptr == start_free) {
-                size_t __i;
-                Obj* volatile* __my_free_list;
-            Obj* __p;
-                // Try to make do with what we have.  That can't
-                // hurt.  We do not try smaller requests, since that tends
-                // to result in disaster on multi-process machines.
-                for (__i = size;
-                    __i <= (size_t) MAX_BYTES;
-                    __i += (size_t) ALIGN) {
-                    __my_free_list = free_list + freelist_index(__i);
-                    __p = *__my_free_list;
-                    if (0 != __p) {
-                        *__my_free_list = __p -> free_list_next;
-                        start_free = (char*)__p;
-                        end_free = start_free + __i;
+                //heap 空间不足，malloc()失败
+                size_t i;
+                Obj* volatile* my_free_list;
+            Obj* p;
+                //试看检视我们手上拥有的东西。这不会造成伤善，我们不打算会试配直
+                //较小的区块，因为那再多进程机器上容易导致灾难
+                //以下搜寻适当的free 1ist
+                //所谓适当是指”尚有未用区块，且区块够大"的free List
+
+                for (i = size; i <= (size_t) MAX_BYTES; i += (size_t) ALIGN) {
+                    my_free_list = free_list + freelist_index(i);
+                    p = *my_free_list;
+                    if (0 != p) {
+                        *my_free_list = p -> free_list_next;
+                        start_free = (char*)p;
+                        end_free = start_free + i;
                         return(chunk_alloc(size, nobjs));
-                        // Any leftover piece will eventually make it to the
-                        // right free list.
+                        //注意，任何残余零头终将被编入释放的free List中备用
                     }
                 }
-            end_free = 0;	// In case of exception.
-                start_free = (char*)malloc_alloc::allocate(__bytes_to_get);
-                // This should either throw an
-                // exception or remedy the situation.  Thus we assume it
-                // succeeded.
+            end_free = 0;	//如果出现意外（山穷水尽，到处都没内存可用了）//如果出现意外（山穷水尽，到处都没内存可用了）
+                //调用第一级配置器，看看out-of-memory机制能够尽点力
+                start_free = (char*)malloc_alloc::allocate(bytes_to_get);
+                //这会导致抛出异常，或内存不足的情况获得改善//这会导致抛出异常，或内存不足的情况获得改善
             }
-            heap_size += __bytes_to_get;
-            end_free = start_free + __bytes_to_get;
+            heap_size += bytes_to_get;
+            end_free = start_free + bytes_to_get;
+            //递归调用自己，为了修正nobjs
             return(chunk_alloc(size, nobjs));
         }
     }
